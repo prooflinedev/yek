@@ -1,5 +1,6 @@
 use anyhow::Result;
 use normalize_path::NormalizePath;
+use path_slash::PathExt;
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Write;
@@ -8,7 +9,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use tempfile::tempdir;
 use yek::config::YekConfig;
-use yek::parallel::process_files_parallel;
+use yek::parallel::{normalize_path, process_files_parallel};
 
 #[cfg(unix)]
 fn make_unreadable(path: &Path) -> std::io::Result<()> {
@@ -41,16 +42,7 @@ fn make_readable(_path: &Path) -> std::io::Result<()> {
 fn test_normalize_path_unix_style() {
     let input = Path::new("/usr/local/bin");
     let base = Path::new("/"); // Dummy base path
-    let expected = "usr/local/bin".to_string();
-    assert_eq!(
-        input
-            .strip_prefix(base)
-            .unwrap()
-            .normalize()
-            .to_string_lossy()
-            .to_string(),
-        expected
-    );
+    assert_eq!(normalize_path(input, base), "usr/local/bin");
 }
 
 #[test]
@@ -202,7 +194,7 @@ mod tests {
 
         let result = process_files_parallel(&PathBuf::from(&glob_pattern), &config, &boost_map)?;
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].rel_path, file_path.to_string_lossy().to_string());
+        assert_eq!(result[0].rel_path, file_path.to_slash_lossy().to_string());
 
         Ok(())
     }
@@ -230,12 +222,12 @@ mod tests {
         let test1_path = temp_dir
             .path()
             .join("test1.txt")
-            .to_string_lossy()
+            .to_slash_lossy()
             .to_string();
         let test2_path = temp_dir
             .path()
             .join("test2.txt")
-            .to_string_lossy()
+            .to_slash_lossy()
             .to_string();
         assert!(paths.contains(&test1_path));
         assert!(paths.contains(&test2_path));
@@ -277,8 +269,8 @@ mod tests {
         assert_eq!(result.len(), 2); // Should match both .rs files
 
         let paths: Vec<String> = result.iter().map(|f| f.rel_path.clone()).collect();
-        let root_path = root_file.to_string_lossy().to_string();
-        let nested_path = nested_file.to_string_lossy().to_string();
+        let root_path = root_file.to_slash_lossy().to_string();
+        let nested_path = nested_file.to_slash_lossy().to_string();
         assert!(paths.contains(&root_path));
         assert!(paths.contains(&nested_path));
 
