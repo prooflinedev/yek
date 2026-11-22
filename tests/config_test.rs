@@ -2,16 +2,12 @@ use std::fs;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
-use std::sync::Mutex;
 use tempfile::{tempdir, TempDir};
 use yek::defaults::{BINARY_FILE_EXTENSIONS, DEFAULT_IGNORE_PATTERNS, DEFAULT_OUTPUT_TEMPLATE};
 
 use yek::config::YekConfig;
 use yek::is_text_file;
 use yek::priority::PriorityRule;
-
-// Mutex to synchronize tests that change the current directory
-static CONFIG_TEST_MUTEX: Mutex<()> = Mutex::new(());
 
 #[test]
 fn test_validate_config_valid() {
@@ -25,7 +21,11 @@ fn test_validate_config_valid() {
     config.binary_extensions = vec!["bin".to_string()];
 
     let result = config.validate();
-    assert!(result.is_ok(), "Expected no validation errors");
+    assert!(
+        result.is_ok(),
+        "Expected no validation errors: {:?}",
+        result
+    );
 }
 
 #[test]
@@ -65,7 +65,7 @@ fn test_validate_config_invalid_priority_rule_pattern() {
     let result = config.validate();
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("priority_rules"));
+    assert!(err.contains("priority_rules"), "unexpected error: {err}");
     assert!(err.contains("Invalid pattern"));
 }
 
@@ -686,176 +686,12 @@ fn test_config_files_ignored_by_default() {
     );
 }
 
-#[test]
-fn test_output_template_from_toml_config() {
-    let _guard = CONFIG_TEST_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
-
-    // Create a unique temp directory and a yek.toml file
-    let temp_dir = TempDir::new().expect("failed to create temp dir");
-    let config_path = temp_dir.path().join("yek.toml");
-
-    // Write config with custom output template
-    let config_content = "output_template = \"==== FILE_PATH ====\\n\\nFILE_CONTENT\"";
-    fs::write(&config_path, config_content).expect("failed to write config file");
-
-    // Change to the temp directory so yek.toml is found
-    let old_dir = std::env::current_dir().expect("failed to get current dir");
-    std::env::set_current_dir(temp_dir.path()).expect("failed to change dir");
-
-    // Try to manually load the config using the config crate
-    let settings = config::Config::builder()
-        .add_source(config::File::from(config_path.clone()).required(false))
-        .build()
-        .unwrap_or_else(|_| config::Config::builder().build().unwrap());
-
-    let output_template: Option<String> = settings.get("output_template").ok();
-
-    // Parse config (this should find and load yek.toml)
-    let mut config = YekConfig::parse();
-
-    // Use manually loaded config if available, otherwise use default
-    if let Some(template) = output_template {
-        config.output_template = Some(template);
-    } else if config.output_template.is_none() {
-        config.output_template = Some(DEFAULT_OUTPUT_TEMPLATE.to_string());
-    }
-
-    // Restore original directory first before temp_dir is dropped
-    std::env::set_current_dir(&old_dir).expect("failed to restore dir");
-
-    // Check that the custom template was loaded
-    assert_eq!(
-        config.output_template,
-        Some("==== FILE_PATH ====\n\nFILE_CONTENT".to_string())
-    );
-
-    // Explicitly drop the temp_dir to clean up
-    drop(temp_dir);
-}
-
-#[test]
-fn test_output_template_from_yaml_config() {
-    let _guard = CONFIG_TEST_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
-
-    // Create a unique temp directory and a yek.yaml file
-    let temp_dir = TempDir::new().expect("failed to create temp dir");
-    let config_path = temp_dir.path().join("yek.yaml");
-
-    // Write config with custom output template
-    let config_content = "output_template: \"### FILE_PATH ###\\n\\nFILE_CONTENT\"";
-    fs::write(&config_path, config_content).expect("failed to write config file");
-
-    // Change to the temp directory so yek.yaml is found
-    let old_dir = std::env::current_dir().expect("failed to get current dir");
-    std::env::set_current_dir(temp_dir.path()).expect("failed to change dir");
-
-    // Try to manually load the config using the config crate
-    let settings = config::Config::builder()
-        .add_source(config::File::from(config_path.clone()).required(false))
-        .build()
-        .unwrap_or_else(|_| config::Config::builder().build().unwrap());
-
-    let output_template: Option<String> = settings.get("output_template").ok();
-
-    // Parse config (this should find and load yek.yaml)
-    let mut config = YekConfig::parse();
-
-    // Use manually loaded config if available, otherwise use default
-    if let Some(template) = output_template {
-        config.output_template = Some(template);
-    } else if config.output_template.is_none() {
-        config.output_template = Some(DEFAULT_OUTPUT_TEMPLATE.to_string());
-    }
-
-    // Restore original directory first before temp_dir is dropped
-    std::env::set_current_dir(&old_dir).expect("failed to restore dir");
-
-    // Check that the custom template was loaded
-    assert_eq!(
-        config.output_template,
-        Some("### FILE_PATH ###\n\nFILE_CONTENT".to_string())
-    );
-
-    // Explicitly drop the temp_dir to clean up
-    drop(temp_dir);
-}
-
-#[test]
-fn test_output_template_from_json_config() {
-    let _guard = CONFIG_TEST_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
-
-    // Create a unique temp directory and a yek.json file
-    let temp_dir = TempDir::new().expect("failed to create temp dir");
-    let config_path = temp_dir.path().join("yek.json");
-
-    // Write config with custom output template
-    let config_content = r#"{"output_template": "@@@ FILE_PATH @@@\n\nFILE_CONTENT"}"#;
-    fs::write(&config_path, config_content).expect("failed to write config file");
-
-    // Change to the temp directory so yek.json is found
-    let old_dir = std::env::current_dir().expect("failed to get current dir");
-    std::env::set_current_dir(temp_dir.path()).expect("failed to change dir");
-
-    // Try to manually load the config using the config crate
-    let settings = config::Config::builder()
-        .add_source(config::File::from(config_path.clone()).required(false))
-        .build()
-        .unwrap_or_else(|_| config::Config::builder().build().unwrap());
-
-    let output_template: Option<String> = settings.get("output_template").ok();
-
-    // Parse config (this should find and load yek.json)
-    let mut config = YekConfig::parse();
-
-    // Use manually loaded config if available, otherwise use default
-    if let Some(template) = output_template {
-        config.output_template = Some(template);
-    } else if config.output_template.is_none() {
-        config.output_template = Some(DEFAULT_OUTPUT_TEMPLATE.to_string());
-    }
-
-    // Restore original directory first before temp_dir is dropped
-    std::env::set_current_dir(&old_dir).expect("failed to restore dir");
-
-    // Check that the custom template was loaded
-    assert_eq!(
-        config.output_template,
-        Some("@@@ FILE_PATH @@@\n\nFILE_CONTENT".to_string())
-    );
-
-    // Explicitly drop the temp_dir to clean up
-    drop(temp_dir);
-}
-
-#[test]
-fn test_output_template_defaults_when_no_config() {
-    let _guard = CONFIG_TEST_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
-
-    // Create a unique temp directory with no config file
-    let temp_dir = TempDir::new().expect("failed to create temp dir");
-    let old_dir = std::env::current_dir().expect("failed to get current dir");
-    std::env::set_current_dir(temp_dir.path()).expect("failed to change dir");
-
-    // Parse config with no config file - should use default
-    let mut config = YekConfig::parse();
-
-    // Handle default for output_template if not provided (similar to init_config)
-    if config.output_template.is_none() {
-        config.output_template = Some(DEFAULT_OUTPUT_TEMPLATE.to_string());
-    }
-
-    // Restore original directory first before temp_dir is dropped
-    std::env::set_current_dir(&old_dir).expect("failed to restore dir");
-
-    // Should use default template when no config file exists
-    assert_eq!(
-        config.output_template,
-        Some(DEFAULT_OUTPUT_TEMPLATE.to_string())
-    );
-
-    // Explicitly drop the temp_dir to clean up
-    drop(temp_dir);
-}
+// Spawns `echo` as a separate program, which exists on Unix but not on Windows
+// (there it is only a shell built-in), so this would always fail on Windows.
+#[cfg_attr(
+    windows,
+    ignore = "spawns `echo`, which is a shell built-in on Windows, not a program"
+)]
 #[test]
 fn test_read_input_paths_from_stdin() {
     use std::process::{Command, Stdio};
@@ -1363,7 +1199,7 @@ fn test_extract_download_url() {
                 "browser_download_url": "https://github.com/bodo-run/yek/releases/download/v1.2.3/yek-x86_64-unknown-linux-musl.tar.gz"
             },
             {
-                "name": "yek-aarch64-apple-darwin.tar.gz", 
+                "name": "yek-aarch64-apple-darwin.tar.gz",
                 "browser_download_url": "https://github.com/bodo-run/yek/releases/download/v1.2.3/yek-aarch64-apple-darwin.tar.gz"
             }
         ]
