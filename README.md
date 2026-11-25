@@ -214,7 +214,7 @@ You can place a file called `yek.yaml` at your project root or pass a custom pat
 
 ### Configurable Options
 
-Most CLI options can be configured in the config file. The following options can be set:
+Most CLI options can be configured in the config file. Keys can be written in snake_case (`ignore_patterns`) or kebab-case (`ignore-patterns`). If a file sets both, the kebab-case key is used. The following options can be set:
 
 **File Processing:**
 - `max_size` - Size limit (same as `--max-size`)

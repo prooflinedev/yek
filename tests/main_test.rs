@@ -556,3 +556,134 @@ fn test_main_help_includes_update_flag() {
         .stdout(predicate::str::contains("--update"))
         .stdout(predicate::str::contains("Update yek to the latest version"));
 }
+
+fn run_yek_in(dir: &std::path::Path, args: &[&str]) -> String {
+    let output = Command::cargo_bin("yek")
+        .expect("Binary 'yek' not found")
+        .current_dir(dir)
+        .arg(".")
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "yek failed: {:?}", output);
+    String::from_utf8(output.stdout).unwrap()
+}
+
+fn write_sample_repo(dir: &std::path::Path) {
+    use std::fs;
+
+    fs::create_dir_all(dir.join("docs")).unwrap();
+    fs::create_dir_all(dir.join("src")).unwrap();
+    fs::create_dir_all(dir.join("zzz")).unwrap();
+    fs::write(dir.join("docs/guide.md"), "guide").unwrap();
+    fs::write(dir.join("src/main.rs"), "fn main() {}").unwrap();
+    fs::write(dir.join("zzz/notes.txt"), "notes").unwrap();
+}
+
+#[test]
+fn test_main_with_snake_case_yaml_config() {
+    use std::fs;
+    use tempfile::tempdir;
+
+    let temp_dir = tempdir().unwrap();
+    write_sample_repo(temp_dir.path());
+    fs::write(
+        temp_dir.path().join("yek.yaml"),
+        "ignore_patterns:\n  - \"docs/**\"\npriority_rules:\n  - score: 500\n    pattern: \"^zzz/\"\noutput_template: \"@@ FILE_PATH\\nFILE_CONTENT\"\n",
+    )
+    .unwrap();
+
+    let output = run_yek_in(temp_dir.path(), &[]);
+
+    assert!(
+        !output.contains("docs/guide.md"),
+        "ignore_patterns not applied:\n{}",
+        output
+    );
+    assert!(
+        output.contains("@@ src/main.rs"),
+        "output_template not applied:\n{}",
+        output
+    );
+    let source = output.find("@@ src/main.rs").unwrap();
+    let boosted = output.find("@@ zzz/notes.txt").unwrap();
+    assert!(source < boosted, "priority_rules not applied:\n{}", output);
+}
+
+#[test]
+fn test_main_with_snake_case_toml_config() {
+    use std::fs;
+    use tempfile::tempdir;
+
+    let temp_dir = tempdir().unwrap();
+    write_sample_repo(temp_dir.path());
+    fs::write(
+        temp_dir.path().join("yek.toml"),
+        "ignore_patterns = [\"docs/**\"]\n",
+    )
+    .unwrap();
+
+    let output = run_yek_in(temp_dir.path(), &[]);
+
+    assert!(
+        !output.contains("docs/guide.md"),
+        "ignore_patterns not applied:\n{}",
+        output
+    );
+    assert!(output.contains("src/main.rs"));
+}
+
+#[test]
+fn test_main_kebab_case_config_key_wins_over_snake_case() {
+    use std::fs;
+    use tempfile::tempdir;
+
+    let temp_dir = tempdir().unwrap();
+    write_sample_repo(temp_dir.path());
+    fs::write(
+        temp_dir.path().join("yek.yaml"),
+        "ignore_patterns:\n  - \"docs/**\"\nignore-patterns:\n  - \"zzz/**\"\n",
+    )
+    .unwrap();
+
+    let output = run_yek_in(temp_dir.path(), &[]);
+
+    assert!(
+        output.contains("docs/guide.md"),
+        "snake_case key should be ignored when kebab-case is set:\n{}",
+        output
+    );
+    assert!(
+        !output.contains("zzz/notes.txt"),
+        "kebab-case key not applied:\n{}",
+        output
+    );
+}
+
+#[test]
+fn test_main_cli_ignore_patterns_extend_snake_case_config() {
+    use std::fs;
+    use tempfile::tempdir;
+
+    let temp_dir = tempdir().unwrap();
+    write_sample_repo(temp_dir.path());
+    fs::write(
+        temp_dir.path().join("yek.yaml"),
+        "ignore_patterns:\n  - \"docs/**\"\n",
+    )
+    .unwrap();
+
+    let output = run_yek_in(temp_dir.path(), &["--ignore-patterns", "zzz/**"]);
+
+    assert!(
+        !output.contains("docs/guide.md"),
+        "config ignore_patterns not applied:\n{}",
+        output
+    );
+    assert!(
+        !output.contains("zzz/notes.txt"),
+        "CLI ignore patterns not applied:\n{}",
+        output
+    );
+    assert!(output.contains("src/main.rs"));
+}

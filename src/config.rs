@@ -207,6 +207,7 @@ impl YekConfig {
         let (mut cfg, config_path, _config_format) = YekConfig::parse_info();
 
         cfg.apply_config_bool_overrides(config_path.as_deref());
+        cfg.apply_snake_case_config_keys(config_path.as_deref());
 
         // Handle version flag
         if cfg.version {
@@ -324,6 +325,55 @@ impl YekConfig {
         self.line_numbers |= config_bool(&settings, "line_numbers", "line-numbers");
         self.tree_header |= config_bool(&settings, "tree_header", "tree-header");
         self.tree_only |= config_bool(&settings, "tree_only", "tree-only");
+    }
+
+    fn apply_snake_case_config_keys(&mut self, config_path: Option<&Path>) {
+        let Some(config_path) = config_path else {
+            return;
+        };
+
+        let Ok(settings) = ::config::Config::builder()
+            .add_source(::config::File::from(config_path).required(false))
+            .build()
+        else {
+            return;
+        };
+
+        if let Some(patterns) = snake_case_value::<Vec<String>>(&settings, "ignore_patterns") {
+            self.ignore_patterns.extend(patterns);
+        }
+        if let Some(patterns) = snake_case_value::<Vec<String>>(&settings, "unignore_patterns") {
+            self.unignore_patterns.extend(patterns);
+        }
+        if let Some(rules) = snake_case_value(&settings, "priority_rules") {
+            self.priority_rules = rules;
+        }
+        if let Some(extensions) = snake_case_value(&settings, "binary_extensions") {
+            self.binary_extensions = extensions;
+        }
+        if let Some(boost) = snake_case_value(&settings, "git_boost_max") {
+            self.git_boost_max = Some(boost);
+        }
+        if let Some(depth) = snake_case_value(&settings, "max_git_depth") {
+            self.max_git_depth = depth;
+        }
+        if let Some(weights) = snake_case_value(&settings, "category_weights") {
+            self.category_weights = Some(weights);
+        }
+        if self.max_size == DEFAULT_MAX_SIZE {
+            if let Some(size) = snake_case_value(&settings, "max_size") {
+                self.max_size = size;
+            }
+        }
+        if self.output_dir.is_none() {
+            self.output_dir = snake_case_value(&settings, "output_dir");
+        }
+        if self.output_name.is_none() {
+            self.output_name = snake_case_value(&settings, "output_name");
+        }
+        if self.output_template.is_none() {
+            self.output_template = snake_case_value(&settings, "output_template");
+        }
     }
 
     /// Compute a quick checksum for the input paths (files and directories).
@@ -704,6 +754,19 @@ fn config_bool(settings: &::config::Config, snake_case_key: &str, kebab_case_key
         .get_bool(snake_case_key)
         .or_else(|_| settings.get_bool(kebab_case_key))
         .unwrap_or(false)
+}
+
+const DEFAULT_MAX_SIZE: &str = "10MB";
+
+fn snake_case_value<T: serde::de::DeserializeOwned>(
+    settings: &::config::Config,
+    snake_case_key: &str,
+) -> Option<T> {
+    let kebab_case_key = snake_case_key.replace('_', "-");
+    if settings.get::<::config::Value>(&kebab_case_key).is_ok() {
+        return None;
+    }
+    settings.get::<T>(snake_case_key).ok()
 }
 
 #[cfg(test)]
