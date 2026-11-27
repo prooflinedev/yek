@@ -601,6 +601,37 @@ mod lib_tests {
     }
 
     #[test]
+    fn test_concat_files_preserves_literal_newlines_in_content() {
+        init_tracing();
+        let temp_dir = tempdir().unwrap();
+        let config = create_test_config(vec![temp_dir.path().to_string_lossy().to_string()]);
+
+        // File containing literal "\n", "\\n", "\r\n", and regex patterns in strings
+        let content = r#"def escape(text):
+    return (
+        text.replace("\\", "\\\\")
+        .replace("\r\n", "\\n")
+        .replace("\n", "\\n")
+    )
+value = r"\nas"
+text = '\n'.join(lines)
+"#;
+        let files = vec![ProcessedFile::new(
+            "repro/escape.py".to_string(),
+            content.to_string(),
+            100,
+            0,
+        )];
+
+        let output = yek::concat_files(&files, &config).unwrap();
+        // The output must contain the exact content byte-for-byte, preserving literal \n sequences
+        assert!(output.contains(content));
+        // Verify that literal \n inside string literals was not rewritten into a physical newline
+        assert!(output.contains(r#".replace("\n", "\\n")"#));
+        assert!(output.contains(r#"r"\nas""#));
+    }
+
+    #[test]
     fn test_concat_files_json_output_special_chars_in_filename() {
         init_tracing();
         let temp_dir = tempdir().unwrap();
