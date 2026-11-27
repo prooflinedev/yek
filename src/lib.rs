@@ -186,6 +186,11 @@ pub fn concat_files(files: &[ProcessedFile], config: &YekConfig) -> anyhow::Resu
             .then_with(|| a.rel_path.cmp(&b.rel_path))
     });
 
+    let unescaped_template = config
+        .output_template
+        .as_ref()
+        .map(|t| t.replace("\\\\\n", "\n").replace("\\\\n", "\n"));
+
     let mut files_to_include = Vec::new();
     for file in sorted_files {
         let content_size = if config.token_mode {
@@ -198,15 +203,11 @@ pub fn concat_files(files: &[ProcessedFile], config: &YekConfig) -> anyhow::Resu
                 }))
                 .map_err(|e| anyhow!("Failed to serialize JSON: {}", e))?
             } else {
-                config
-                    .output_template
+                unescaped_template
                     .as_ref()
                     .expect("output_template should be set")
                     .replace("FILE_PATH", &file.rel_path)
                     .replace("FILE_CONTENT", &content)
-                    // Handle both literal "\n" and escaped "\\n"
-                    .replace("\\\\\n", "\n") // First handle escaped newline
-                    .replace("\\\\n", "\n") // Then handle escaped \n sequence
             };
             count_tokens(&formatted)
         } else {
@@ -238,19 +239,16 @@ pub fn concat_files(files: &[ProcessedFile], config: &YekConfig) -> anyhow::Resu
         )?
     } else {
         // Use the user-defined template
+        let template = unescaped_template
+            .as_ref()
+            .expect("output_template should be set");
         files_to_include
             .iter()
             .map(|f| {
                 let content = format_content_with_line_numbers(&f.content, config.line_numbers);
-                config
-                    .output_template
-                    .as_ref()
-                    .expect("output_template should be set")
+                template
                     .replace("FILE_PATH", &f.rel_path)
                     .replace("FILE_CONTENT", &content)
-                    // Handle both literal "\n" and escaped "\\n"
-                    .replace("\\\\\n", "\n") // First handle escaped newline
-                    .replace("\\\\n", "\n") // Then handle escaped \n sequence
             })
             .collect::<Vec<_>>()
             .join("\n")
